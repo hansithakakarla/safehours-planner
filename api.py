@@ -1,6 +1,8 @@
 
 from pathlib import Path
 from functools import lru_cache
+from contextlib import asynccontextmanager
+import asyncio
 import os
 import urllib.request
 from typing import Optional
@@ -20,7 +22,14 @@ from recommendation import (
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "city_hour.csv"
 
-app = FastAPI(title="SafeHours API")
+
+@asynccontextmanager
+async def lifespan(_app):
+    await asyncio.to_thread(load_data)
+    yield
+
+
+app = FastAPI(title="SafeHours API", lifespan=lifespan)
 
 allowed_frontend_origins = [
     "http://localhost:5173",

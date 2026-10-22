@@ -81,19 +81,27 @@ def check_data_quality(
     reasons = {idx: [] for idx in df.index}
 
     # 1. Missing/invalid values and inserted missing-hour placeholders.
-    for idx, row in df.iterrows():
-        if pd.isna(row["City"]) or not str(row["City"]).strip():
+    # Plain column arrays instead of iterrows(): same checks, far faster
+    # (iterrows takes minutes on Render's free-tier CPU).
+    for idx, city_value, timestamp, inserted, aqi in zip(
+        df.index,
+        df["City"].tolist(),
+        df["Datetime"].tolist(),
+        df["_inserted_missing_hour"].tolist(),
+        df["AQI"].tolist(),
+    ):
+        if pd.isna(city_value) or not str(city_value).strip():
             reasons[idx].append("Missing city")
 
-        if pd.isna(row["Datetime"]):
+        if pd.isna(timestamp):
             reasons[idx].append("Invalid or missing timestamp")
 
-        if bool(row["_inserted_missing_hour"]):
+        if bool(inserted):
             reasons[idx].append("Missing hourly timestamp")
 
-        if pd.isna(row["AQI"]):
+        if pd.isna(aqi):
             reasons[idx].append("Missing or invalid AQI")
-        elif not 0 <= row["AQI"] <= 500:
+        elif not 0 <= aqi <= 500:
             reasons[idx].append("AQI outside the valid 0–500 range")
 
     # 2. Duplicate city-hour records (all duplicates are marked unreliable).
@@ -148,9 +156,11 @@ def check_data_quality(
                         f"{stuck_threshold}+ consecutive hourly readings"
                     )
 
-        for idx, row in city_rows.iterrows():
-            timestamp = row["Datetime"]
-            aqi = row["AQI"]
+        for idx, timestamp, aqi in zip(
+            city_rows.index,
+            city_rows["Datetime"].tolist(),
+            city_rows["AQI"].tolist(),
+        ):
             valid = (
                 pd.notna(timestamp)
                 and pd.notna(aqi)
