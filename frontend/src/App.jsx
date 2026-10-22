@@ -146,6 +146,7 @@ export default function App() {
   const [city, setCity] = useState("");
   const [date, setDate] = useState("");
   const [duration, setDuration] = useState(60);
+  const [startTime, setStartTime] = useState("");
   const [heatmapMode, setHeatmapMode] = useState("calendar");
   const [result, setResult] = useState(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -197,6 +198,11 @@ export default function App() {
 
   const cityDates = options?.dates_by_city?.[city] || [];
   const dateAvailable = cityDates.includes(date);
+  const latestStartHour = 18 - Number(duration) / 60;
+  const startHours = Array.from(
+    { length: latestStartHour - 5 },
+    (_, index) => index + 6
+  );
 
   const chartData = useMemo(
     () => (result?.hourly_readings || [])
@@ -282,6 +288,7 @@ export default function App() {
           city,
           activity_date: requestedDate,
           activity_duration_minutes: Number(duration),
+          preferred_start_hour: startTime === "" ? null : Number(startTime),
         }),
       });
 
@@ -307,6 +314,7 @@ export default function App() {
 
   const recommendation = result?.recommendation;
   const primary = recommendation?.primary_recommendation;
+  const preferredWindow = recommendation?.preferred_window;
   const status = recommendation?.status;
   const advisory =
     recommendation?.advisory ||
@@ -392,12 +400,37 @@ export default function App() {
               />
             </label>
 
+            <label className="field start-time-field">
+              <span className="field-label"><Clock3 size={15} /> Start time</span>
+              <select
+                value={startTime}
+                onChange={(event) => {
+                  setStartTime(event.target.value);
+                  setResult(null);
+                }}
+              >
+                <option value="">Find best time</option>
+                {startHours.map((hour) => (
+                  <option key={hour} value={hour}>
+                    {new Date(2000, 0, 1, hour).toLocaleTimeString("en-IN", {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <label className="field duration-field">
               <span className="field-label"><Clock3 size={15} /> Activity duration</span>
               <select
                 value={duration}
                 onChange={(event) => {
-                  setDuration(Number(event.target.value));
+                  const nextDuration = Number(event.target.value);
+                  if (startTime !== "" && Number(startTime) + nextDuration / 60 > 18) {
+                    setStartTime("");
+                  }
+                  setDuration(nextDuration);
                   setResult(null);
                 }}
               >
@@ -488,6 +521,21 @@ export default function App() {
                 <em>{aqiCategory(primary.worst_hour_aqi)}</em>
               </div>
             </article>
+          )}
+
+          {result && preferredWindow && (
+            <div className={`preferred-time-note ${preferredWindow.status === "unavailable" ? "unavailable" : "assessed"}`}>
+              <Clock3 size={17} />
+              <div>
+                <strong>{preferredWindow.status === "assessed" ? "Your selected start time was assessed" : "No reliable readings at your selected start time"}</strong>
+                <p>{preferredWindow.message}</p>
+                {recommendation?.preferred_alternative && (
+                  <p className="preferred-alternative">
+                    Alternative: {recommendation.preferred_alternative.start}–{recommendation.preferred_alternative.end}, mean AQI {recommendation.preferred_alternative.mean_aqi} ({recommendation.preferred_alternative.aqi_band}).
+                  </p>
+                )}
+              </div>
+            </div>
           )}
 
           {result && noAdvice && (
