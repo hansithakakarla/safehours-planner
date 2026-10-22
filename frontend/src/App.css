@@ -510,6 +510,13 @@ body {
 
 .planner-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; color: #87948c; font-size: 10px; }
 .date-unavailable { color: #a14e3f; }
+.health-controls { margin-top: 13px; padding-top: 12px; border-top: 1px solid #edf1ed; }
+.health-toggle { display: inline-flex; align-items: center; gap: 8px; color: #496357; font-size: 11px; font-weight: 700; cursor: pointer; }
+.health-toggle input { width: 15px; height: 15px; accent-color: #176c62; }
+.health-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; max-width: 620px; margin: 12px 0 2px 23px; }
+.health-fields .field input { height: 44px; padding: 0 12px; border: 1px solid #d8e2d9; border-radius: 6px; background: #fff; color: #243a30; font-size: 13px; }
+.health-fields .field input:focus { border-color: #438d78; outline: none; box-shadow: 0 0 0 3px rgb(23 108 98 / 12%); }
+.health-help { grid-column: 1 / -1; margin: -2px 0 0; color: #78877f; font-size: 10px; line-height: 1.6; }
 
 .error-box, .no-advice {
   display: flex;
@@ -601,6 +608,10 @@ body {
 .preferred-time-note.unavailable { border-color: #e8dcb9; background: #fffaf0; color: #896b32; }
 .preferred-time-note.unavailable p { color: #75684c; }
 .preferred-time-note .preferred-alternative { font-weight: 700; }
+.health-guidance-note { display: flex; align-items: flex-start; gap: 9px; margin-top: 10px; padding: 11px 13px; border: 1px solid #d8e2c8; border-radius: 6px; background: #f7f8ef; color: #657237; }
+.health-guidance-note > svg { flex: 0 0 auto; margin-top: 1px; }
+.health-guidance-note strong { font-size: 11px; }
+.health-guidance-note p { margin: 4px 0 0; color: #6f7855; font-size: 10px; line-height: 1.55; }
 
 .alternatives-panel { margin-top: 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .alternatives-panel summary { display: flex; justify-content: space-between; padding: 12px 14px; color: #4b6758; cursor: pointer; font-size: 11px; font-weight: 700; list-style: none; }
@@ -751,6 +762,8 @@ body {
   .historical-badge { font-size: 10px; white-space: normal; }
   .planner-panel { padding: 17px 15px 13px; }
   .planner-controls { grid-template-columns: 1fr; gap: 12px; }
+  .health-fields { grid-template-columns: 1fr; margin-left: 0; }
+  .health-help { grid-column: auto; }
   .primary-button { width: 100%; }
   .planner-foot { align-items: flex-start; flex-direction: column; }
   .section-heading h2 { font-size: 17px; }

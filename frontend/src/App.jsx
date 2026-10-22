@@ -147,6 +147,9 @@ export default function App() {
   const [date, setDate] = useState("");
   const [duration, setDuration] = useState(60);
   const [startTime, setStartTime] = useState("");
+  const [healthPrecautionsEnabled, setHealthPrecautionsEnabled] = useState(false);
+  const [healthSensitivityGroup, setHealthSensitivityGroup] = useState("");
+  const [healthAqiThreshold, setHealthAqiThreshold] = useState("");
   const [heatmapMode, setHeatmapMode] = useState("calendar");
   const [result, setResult] = useState(null);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -170,6 +173,9 @@ export default function App() {
         if (cancelled) return;
 
         setOptions(data);
+        setHealthSensitivityGroup(
+          data.health_sensitivity_groups?.[0]?.value || ""
+        );
 
         const firstCity = ["Bengaluru", "Chennai", "Delhi"].find(
           (name) => data.cities?.includes(name)
@@ -198,6 +204,10 @@ export default function App() {
 
   const cityDates = options?.dates_by_city?.[city] || [];
   const dateAvailable = cityDates.includes(date);
+  const healthSensitivityGroups = options?.health_sensitivity_groups || [];
+  const selectedHealthGroup = healthSensitivityGroups.find(
+    (group) => group.value === healthSensitivityGroup
+  );
   const latestStartHour = 18 - Number(duration) / 60;
   const startHours = Array.from(
     { length: latestStartHour - 5 },
@@ -289,6 +299,13 @@ export default function App() {
           activity_date: requestedDate,
           activity_duration_minutes: Number(duration),
           preferred_start_hour: startTime === "" ? null : Number(startTime),
+          health_precautions_enabled: healthPrecautionsEnabled,
+          health_sensitivity_group: healthPrecautionsEnabled
+            ? healthSensitivityGroup
+            : null,
+          health_aqi_threshold: healthPrecautionsEnabled && healthAqiThreshold !== ""
+            ? Number(healthAqiThreshold)
+            : null,
         }),
       });
 
@@ -315,6 +332,18 @@ export default function App() {
   const recommendation = result?.recommendation;
   const primary = recommendation?.primary_recommendation;
   const preferredWindow = recommendation?.preferred_window;
+  const selectedWindow = preferredWindow?.status === "assessed"
+    ? preferredWindow
+    : null;
+  const displayPrimary = selectedWindow || primary;
+  const candidateAlternatives = selectedWindow
+    ? [primary, ...(recommendation?.alternatives || [])]
+    : recommendation?.alternatives || [];
+  const alternativeWindows = candidateAlternatives.filter(
+    (window, index, windows) => window
+      && window.start_hour !== displayPrimary?.start_hour
+      && windows.findIndex((candidate) => candidate?.start_hour === window.start_hour) === index
+  );
   const status = recommendation?.status;
   const advisory =
     recommendation?.advisory ||
@@ -453,6 +482,61 @@ export default function App() {
             </button>
           </div>
 
+          <div className="health-controls">
+            <label className="health-toggle">
+              <input
+                type="checkbox"
+                checked={healthPrecautionsEnabled}
+                onChange={(event) => {
+                  setHealthPrecautionsEnabled(event.target.checked);
+                  setResult(null);
+                  setError("");
+                }}
+              />
+              <span>Apply a health-sensitive AQI filter</span>
+            </label>
+            {healthPrecautionsEnabled && (
+              <div className="health-fields">
+                <label className="field">
+                  <span className="field-label">Sensitivity group</span>
+                  <select
+                    value={healthSensitivityGroup}
+                    onChange={(event) => {
+                      setHealthSensitivityGroup(event.target.value);
+                      setResult(null);
+                    }}
+                    disabled={!healthSensitivityGroups.length}
+                  >
+                    {healthSensitivityGroups.map((group) => (
+                      <option key={group.value} value={group.value}>{group.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Maximum AQI for planning</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="500"
+                    step="1"
+                    value={healthAqiThreshold}
+                    placeholder={selectedHealthGroup ? `Default ${selectedHealthGroup.default_aqi_threshold}` : "Group default"}
+                    onChange={(event) => {
+                      setHealthAqiThreshold(event.target.value);
+                      setResult(null);
+                    }}
+                  />
+                </label>
+                <p className="health-help">
+                  {selectedHealthGroup
+                    ? `Default: ${selectedHealthGroup.default_aqi_threshold} AQI for ${selectedHealthGroup.label}. `
+                    : "Choose a sensitivity group. "}
+                  This is a configurable planning precaution, not medical advice or a safety guarantee.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="planner-foot">
             <span>
               {loadingOptions
@@ -503,27 +587,27 @@ export default function App() {
             </div>
           )}
 
-          {result && primary && (
+          {result && displayPrimary && (
             <article className="recommendation-card">
               <div className="recommendation-main">
-                <span className="recommendation-kicker"><CheckCircle2 size={15} /> BEST ELIGIBLE WINDOW</span>
-                <strong>{primary.start}<span>–</span>{primary.end}</strong>
-                <span>{duration / 60} {duration === 60 ? "hour" : "hours"} outdoors · ranked by mean AQI</span>
+                <span className="recommendation-kicker"><CheckCircle2 size={15} /> {selectedWindow ? "YOUR SELECTED WINDOW · RELIABLE" : "BEST ELIGIBLE WINDOW"}</span>
+                <strong>{displayPrimary.start}<span>–</span>{displayPrimary.end}</strong>
+                <span>{duration / 60} {duration === 60 ? "hour" : "hours"} outdoors · {selectedWindow ? "your chosen start time" : "ranked by mean AQI"}</span>
               </div>
               <div className="recommendation-stat">
                 <span>Mean AQI</span>
-                <strong>{primary.mean_aqi}</strong>
-                <em style={{ color: aqiColor(primary.mean_aqi) }}>{primary.aqi_band}</em>
+                <strong>{displayPrimary.mean_aqi}</strong>
+                <em style={{ color: aqiColor(displayPrimary.mean_aqi) }}>{displayPrimary.aqi_band}</em>
               </div>
               <div className="recommendation-stat">
                 <span>Highest hour</span>
-                <strong>{primary.worst_hour_aqi}</strong>
-                <em>{aqiCategory(primary.worst_hour_aqi)}</em>
+                <strong>{displayPrimary.worst_hour_aqi}</strong>
+                <em>{aqiCategory(displayPrimary.worst_hour_aqi)}</em>
               </div>
             </article>
           )}
 
-          {result && preferredWindow && (
+          {result && preferredWindow?.status === "unavailable" && (
             <div className={`preferred-time-note ${preferredWindow.status === "unavailable" ? "unavailable" : "assessed"}`}>
               <Clock3 size={17} />
               <div>
@@ -538,6 +622,17 @@ export default function App() {
             </div>
           )}
 
+          {result?.recommendation?.health_guidance_applied && (
+            <div className="health-guidance-note" role="note">
+              <Leaf size={17} />
+              <div>
+                <strong>Health-sensitive planning · {result.recommendation.health_sensitivity_label}</strong>
+                <p>{result.recommendation.health_guidance_summary || `Windows were filtered using a ${result.recommendation.health_aqi_threshold} AQI planning threshold.`}</p>
+                <p>This is a configurable precautionary heuristic, not medical advice or a guarantee of safety.</p>
+              </div>
+            </div>
+          )}
+
           {result && noAdvice && (
             <div className="no-advice" role="status">
               <AlertTriangle size={20} />
@@ -545,11 +640,11 @@ export default function App() {
             </div>
           )}
 
-          {result && primary && recommendation?.alternatives?.length > 0 && (
+          {result && displayPrimary && alternativeWindows.length > 0 && (
             <details className="alternatives-panel">
-              <summary>Other eligible time windows <span>{recommendation.alternatives.length}</span></summary>
+              <summary>Other eligible time windows <span>{alternativeWindows.length}</span></summary>
               <div className="alternatives-list">
-                {recommendation.alternatives.map((item) => (
+                {alternativeWindows.map((item) => (
                   <div className="alternative-row" key={`${item.start_hour}-${item.end_hour}`}>
                     <strong>{item.start} – {item.end}</strong>
                     <span>{item.mean_aqi} AQI · {item.aqi_band}</span>

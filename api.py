@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from data_quality import check_data_quality
-from recommendation import generate_recommendation, cpcb_aqi_band
+from recommendation import (
+    HEALTH_SENSITIVITY_GROUPS,
+    cpcb_aqi_band,
+    generate_recommendation,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "city_hour.csv"
@@ -67,6 +71,9 @@ class PlanRequest(BaseModel):
     activity_date: str
     activity_duration_minutes: int = 60
     preferred_start_hour: Optional[int] = None
+    health_precautions_enabled: bool = False
+    health_sensitivity_group: Optional[str] = None
+    health_aqi_threshold: Optional[float] = None
 
 
 @app.get("/api/health")
@@ -100,6 +107,10 @@ def options():
         "cities": [city for city in requested_cities if dates_by_city[city]],
         "dates_by_city": dates_by_city,
         "durations": [60, 120, 180],
+        "health_sensitivity_groups": [
+            {"value": group, **details}
+            for group, details in HEALTH_SENSITIVITY_GROUPS.items()
+        ],
         "dataset_start": df["Datetime"].min().strftime("%Y-%m-%d"),
         "dataset_end": df["Datetime"].max().strftime("%Y-%m-%d"),
         "historical_only": True,
@@ -123,6 +134,20 @@ def plan(request: PlanRequest):
             raise HTTPException(
                 status_code=400,
                 detail="The activity must finish by 6 PM. Choose an earlier start time or shorter duration.",
+            )
+    if request.health_precautions_enabled:
+        if request.health_sensitivity_group not in HEALTH_SENSITIVITY_GROUPS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Choose a supported health sensitivity group: "
+                    + ", ".join(HEALTH_SENSITIVITY_GROUPS)
+                ),
+            )
+        if request.health_aqi_threshold is not None and not 0 <= request.health_aqi_threshold <= 500:
+            raise HTTPException(
+                status_code=400,
+                detail="Health AQI threshold must be between 0 and 500.",
             )
 
     df = load_data()
@@ -152,13 +177,19 @@ def plan(request: PlanRequest):
     reliable_rows = day_rows[day_rows["reliable"] == True]
     valid_aqi = day_rows["AQI"].dropna()
 
-    recommendation = generate_recommendation(
-        df,
-        city=request.city,
-        activity_date=request.activity_date,
-        activity_duration_minutes=request.activity_duration_minutes,
-        preferred_start_hour=request.preferred_start_hour,
-    )
+    try:
+        recommendation = generate_recommendation(
+            df,
+            city=request.city,
+            activity_date=request.activity_date,
+            activity_duration_minutes=request.activity_duration_minutes,
+            preferred_start_hour=request.preferred_start_hour,
+            health_precautions_enabled=request.health_precautions_enabled,
+            health_sensitivity_group=request.health_sensitivity_group,
+            health_aqi_threshold=request.health_aqi_threshold,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     hourly_readings = []
     for _, row in day_rows.sort_values("Datetime").iterrows():
