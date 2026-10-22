@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from functools import lru_cache
+import os
 from typing import Optional
 
 import pandas as pd
@@ -20,15 +21,22 @@ DATA_PATH = BASE_DIR / "data" / "city_hour.csv"
 
 app = FastAPI(title="SafeHours API")
 
+allowed_frontend_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "https://safehour-planner.onrender.com",
+]
+allowed_frontend_origins.extend(
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "https://safehour-planner.onrender.com",
-    ],
+    allow_origins=allowed_frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -13,7 +13,14 @@ import {
 } from "lucide-react";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API = import.meta.env.VITE_API_URL?.replace(/\/+$/, "")
+  || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
+
+function apiConfigurationError() {
+  return import.meta.env.DEV
+    ? "Make sure FastAPI is running on port 8000."
+    : "Set VITE_API_URL in the Render frontend environment to your deployed FastAPI URL, then redeploy.";
+}
 
 const AQI_BANDS = [
   { label: "Good", min: 0, max: 50, color: "#247653" },
@@ -164,6 +171,10 @@ export default function App() {
         setLoadingOptions(true);
         setError("");
 
+        if (!API) {
+          throw new Error(apiConfigurationError());
+        }
+
         const response = await fetch(`${API}/api/options`);
         if (!response.ok) {
           throw new Error(`Could not load cities and dates (${response.status}).`);
@@ -187,9 +198,7 @@ export default function App() {
         setDate(dates.at(-1) || "");
       } catch (err) {
         if (!cancelled) {
-          setError(
-            `${err.message} Make sure the FastAPI server is running on port 8000.`
-          );
+          setError(`${err.message} ${apiConfigurationError()}`);
         }
       } finally {
         if (!cancelled) setLoadingOptions(false);
@@ -291,6 +300,10 @@ export default function App() {
       setError("");
       setResult(null);
 
+      if (!API) {
+        throw new Error(apiConfigurationError());
+      }
+
       const response = await fetch(`${API}/api/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -321,9 +334,7 @@ export default function App() {
 
       setResult(data);
     } catch (err) {
-      setError(
-        `${err.message} Check that the backend is running and that the selected date exists.`
-      );
+      setError(`${err.message} ${apiConfigurationError()}`);
     } finally {
       setLoadingPlan(false);
     }

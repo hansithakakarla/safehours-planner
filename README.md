@@ -113,3 +113,23 @@ See [DEV_LOG.md](DEV_LOG.md) for development decisions, experiments, test result
 
 - Live application: [Add public URL when deployed]
 - Demo video: [Add URL]
+
+### Render Deployment
+
+Deploy the React frontend as a Static Site and the FastAPI backend as a separate Web Service.
+
+**Frontend Static Site**
+
+- Root directory: `frontend`
+- Build command: `npm install && npm run build`
+- Publish directory: `dist`
+- Environment variable: `VITE_API_URL=https://<your-api-service>.onrender.com`
+
+**Backend Web Service**
+
+- Root directory: repository root
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn api:app --host 0.0.0.0 --port $PORT`
+- Environment variable: `FRONTEND_ORIGINS=https://<your-frontend-site>.onrender.com`
+
+`VITE_API_URL` is embedded into the frontend at build time, so redeploy the Static Site after changing it. Do not use `127.0.0.1` for the deployed frontend; that address points to each visitor's own computer. `FRONTEND_ORIGINS` accepts comma-separated browser origins and should contain the exact frontend origin, without a path.
