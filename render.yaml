@@ -12,10 +12,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: FRONTEND_ORIGINS
-        fromService:
-          type: web
-          name: safehours-web
-          property: host
+        value: https://safehours-web.onrender.com
 
   - type: web
     name: safehours-web
@@ -25,7 +22,4 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: safehours-api
-          property: host
+        value: https://safehours-api.onrender.com
