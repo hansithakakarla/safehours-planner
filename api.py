@@ -1,6 +1,7 @@
 
 from pathlib import Path
 from functools import lru_cache
+from typing import Optional
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -65,6 +66,7 @@ class PlanRequest(BaseModel):
     city: str
     activity_date: str
     activity_duration_minutes: int = 60
+    preferred_start_hour: Optional[int] = None
 
 
 @app.get("/api/health")
@@ -111,6 +113,17 @@ def plan(request: PlanRequest):
             status_code=400,
             detail="Duration must be 60, 120, or 180 minutes.",
         )
+    if request.preferred_start_hour is not None:
+        if not 6 <= request.preferred_start_hour <= 17:
+            raise HTTPException(
+                status_code=400,
+                detail="Start time must be between 6 AM and 5 PM.",
+            )
+        if request.preferred_start_hour + request.activity_duration_minutes // 60 > 18:
+            raise HTTPException(
+                status_code=400,
+                detail="The activity must finish by 6 PM. Choose an earlier start time or shorter duration.",
+            )
 
     df = load_data()
 
@@ -144,6 +157,7 @@ def plan(request: PlanRequest):
         city=request.city,
         activity_date=request.activity_date,
         activity_duration_minutes=request.activity_duration_minutes,
+        preferred_start_hour=request.preferred_start_hour,
     )
 
     hourly_readings = []
