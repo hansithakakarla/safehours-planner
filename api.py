@@ -1,9 +1,9 @@
 
 from pathlib import Path
 from functools import lru_cache
-from contextlib import asynccontextmanager
-import asyncio
+import logging
 import os
+import threading
 import urllib.request
 from typing import Optional
 
@@ -22,14 +22,7 @@ from recommendation import (
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "city_hour.csv"
 
-
-@asynccontextmanager
-async def lifespan(_app):
-    await asyncio.to_thread(load_data)
-    yield
-
-
-app = FastAPI(title="SafeHours API", lifespan=lifespan)
+app = FastAPI(title="SafeHours API")
 
 allowed_frontend_origins = [
     "http://localhost:5173",
@@ -77,8 +70,22 @@ def _ensure_dataset():
     urllib.request.urlretrieve(data_url, DATA_PATH)
 
 
-@lru_cache(maxsize=1)
+_load_lock = threading.Lock()
+
+
 def load_data():
+    """Return the checked dataset, loading it at most once.
+
+    The lock makes concurrent callers (the startup preload plus any early
+    requests) wait for the single load instead of each starting their own,
+    which would multiply memory use and crash Render's 512 MB instance.
+    """
+    with _load_lock:
+        return _load_data_once()
+
+
+@lru_cache(maxsize=1)
+def _load_data_once():
     try:
         _ensure_dataset()
     except Exception as exc:
@@ -131,6 +138,19 @@ class PlanRequest(BaseModel):
     health_precautions_enabled: bool = False
     health_sensitivity_group: Optional[str] = None
     health_aqi_threshold: Optional[float] = None
+
+
+@app.on_event("startup")
+def warm_up_dataset():
+    """Load and check the dataset in the background as soon as the server
+    starts, so the first visitor doesn't have to wait for it."""
+    def _load():
+        try:
+            load_data()
+        except Exception:
+            logging.exception("Failed to preload dataset during startup")
+
+    threading.Thread(target=_load, daemon=True).start()
 
 
 @app.get("/")
