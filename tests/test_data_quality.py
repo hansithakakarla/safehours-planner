@@ -58,7 +58,23 @@ def test_time_gap_breaks_stuck_run():
 
     result = check_data_quality(df, stuck_threshold=4)
 
-    assert result["reliable"].all()
+    # The original readings should remain reliable because
+    # the repeated readings are separated by a missing hour.
+    original_times = pd.to_datetime(df["Datetime"])
+    checked_original = result[
+        result["Datetime"].isin(original_times)
+    ]
+
+    assert len(checked_original) == 4
+    assert checked_original["reliable"].all()
+
+    # The missing 08:00 hour should be flagged as unreliable.
+    missing_hour = result[
+        result["Datetime"] == pd.Timestamp("2020-01-01 08:00")
+    ]
+
+    assert len(missing_hour) == 1
+    assert not missing_hour.iloc[0]["reliable"]
 
 
 def test_stale_check_is_optional():
@@ -89,7 +105,8 @@ def test_negative_aqi_is_unreliable():
     result = check_data_quality(df)
 
     assert not result.loc[0, "reliable"]
-    assert "negative AQI" in result.loc[0, "quality_reason"]
+    assert "outside the valid" in result.loc[0, "quality_reason"]
+
 
 
 def test_duplicate_city_hour_is_flagged():
