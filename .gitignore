@@ -221,3 +221,6 @@ __marimo__/
 
 # Dataset files
 data/*.csv
+date_evaluation_summary.csv
+date_evaluation_candidates.csv
+evaluation_results*.csv
