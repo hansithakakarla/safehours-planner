@@ -47,6 +47,7 @@ def generate_recommendation(
     min_reliable_fraction=0.70,
     min_reliable_rows=6,
     max_alternatives=3,
+    preferred_start_hour=None,
 ):
     """
     Recommend a historical outdoor-activity window for one city and date.
@@ -57,6 +58,9 @@ def generate_recommendation(
     from 06:00, and every hourly bucket touched by an activity must have reliable
     AQI data. For now, duration must be a whole number of hours because the
     source data is hourly; this avoids pretending to know sub-hour conditions.
+
+    Set preferred_start_hour (e.g. 7) to assess a preferred start time.
+    Leave it as None to use the standard best-window recommendation.
 
     This is a historical planner, not a forecast of current conditions.
     """
@@ -84,6 +88,20 @@ def generate_recommendation(
     if max_alternatives < 0:
         raise ValueError("max_alternatives cannot be negative.")
 
+    if preferred_start_hour is not None:
+        if (
+            isinstance(preferred_start_hour, bool)
+            or not isinstance(preferred_start_hour, int)
+            or not 6 <= preferred_start_hour <= 17
+        ):
+            raise ValueError(
+                "Preferred start time must be a whole hour from 6 AM to 5 PM, or None."
+            )
+        if preferred_start_hour + activity_duration_minutes // 60 > 18:
+            raise ValueError(
+                "The preferred activity must finish by 6 PM. Choose an earlier start time or shorter duration."
+            )
+
     try:
         selected_date = pd.Timestamp(activity_date).date()
     except (TypeError, ValueError):
@@ -104,7 +122,7 @@ def generate_recommendation(
     if day_rows.empty:
         return _no_advice(
             city, selected_date,
-            "No data is available for this city on the selected date.",
+            f"We could not find AQI records for {str(city).strip()} on {selected_date}. Please try another date or city.",
         )
 
     # AQI records outside 06:00–18:00 are not used for the planner's hourly strip.
@@ -116,7 +134,7 @@ def generate_recommendation(
     if day_rows.empty:
         return _no_advice(
             city, selected_date,
-            "No readings are available between 6 AM and 6 PM on the selected date.",
+            "We could not find readings between 6 AM and 6 PM for this date. Please try another date.",
         )
 
     day_rows["reliable_flag"] = (
@@ -169,7 +187,7 @@ def generate_recommendation(
     if len(reliable_rows) < min_reliable_rows or reliable_fraction < min_reliable_fraction:
         return _no_advice(
             city, selected_date,
-            "No advice: the selected date does not have enough reliable AQI data.",
+            "We do not have enough reliable AQI readings to suggest an outdoor activity time for this date.\n\nPlease try another date. The hourly strip shows which hours have missing or unreliable data.",
             reliable_rows=int(len(reliable_rows)),
             total_rows=int(total_rows),
             reliable_fraction=round(float(reliable_fraction), 3),
@@ -204,18 +222,17 @@ def generate_recommendation(
             "worst_hour_aqi": round(worst_aqi, 1),
             "aqi_band": mean_band["band"],
             "reason": (
-                f"Mean AQI {mean_aqi:.1f} ({mean_band['band']}); "
-                f"highest hourly AQI in this window is {worst_aqi:.1f} "
-                f"({worst_band['band']}). Ranked using reliable readings "
-                "for the selected date."
+                f"This time slot has an average AQI of {mean_aqi:.1f} ({mean_band['band']}).\n\n"
+                f"The highest hourly AQI in the slot is {worst_aqi:.1f} ({worst_band['band']}). "
+                "This slot was assessed using reliable readings for the selected date."
             ),
         })
 
     if not candidates:
         return _no_advice(
             city, selected_date,
-            "No advice: no complete activity window between 6 AM and 6 PM "
-            "has reliable readings for every hour.",
+            "We could not find a complete activity window with reliable AQI readings for every hour between 6 AM and 6 PM.\n\n"
+            "Please try another date or choose a different activity duration.",
             reliable_rows=int(len(reliable_rows)),
             total_rows=int(total_rows),
             reliable_fraction=round(float(reliable_fraction), 3),
@@ -228,21 +245,78 @@ def generate_recommendation(
 
     # Do not describe any AQI band as an unconditional guarantee of safety.
     advisory = (
-        f"For {str(city).strip()} on {selected_date}, the lowest-scoring "
-        f"eligible {activity_duration_minutes}-minute window in the available "
-        f"historical readings is {primary['start']}–{primary['end']}. "
-        f"Its mean AQI is {primary['mean_aqi']:.1f} ({primary['aqi_band']}). "
-        f"{cpcb_aqi_band(primary['mean_aqi'])['advisory']} "
-        "This is a historical-data recommendation, not a live AQI forecast; "
-        "check current local conditions before the activity."
+        f"For {str(city).strip()} on {selected_date}, the best eligible time in the available historical data is "
+        f"{primary['start']}–{primary['end']} for your {activity_duration_minutes}-minute activity.\n\n"
+        f"The average AQI for this window is {primary['mean_aqi']:.1f} ({primary['aqi_band']}). "
+        f"{cpcb_aqi_band(primary['mean_aqi'])['advisory']}\n\n"
+        "This result is based on historical readings, not a live AQI forecast. Please check current local conditions before the activity."
     )
+
+    preferred_window = None
+    preferred_alternative = None
+
+    if preferred_start_hour is not None:
+        preferred_end_hour = preferred_start_hour + duration_hours
+        preferred_hours = hourly.loc[preferred_start_hour:preferred_end_hour - 1]
+        preferred_is_reliable = (
+            len(preferred_hours) == duration_hours
+            and bool(preferred_hours["reliable"].all())
+        )
+
+        if not preferred_is_reliable:
+            preferred_window = {
+                "start_hour": preferred_start_hour,
+                "end_hour": preferred_end_hour,
+                "start": pd.Timestamp("2000-01-01").replace(hour=preferred_start_hour).strftime("%I %p").lstrip("0"),
+                "end": pd.Timestamp("2000-01-01").replace(hour=preferred_end_hour).strftime("%I %p").lstrip("0"),
+                "status": "unavailable",
+                "mean_aqi": None,
+                "worst_hour_aqi": None,
+                "aqi_band": "No reliable data",
+                "message": (
+                    f"We cannot assess your preferred time because at least one hour between "
+                    f"{preferred_start_hour}:00 and {preferred_end_hour}:00 is missing or unreliable.\n\n"
+                    "We have looked for another time with reliable readings instead."
+                ),
+            }
+            preferred_alternative = primary
+        else:
+            preferred_candidate = next(
+                (window for window in candidates if window["start_hour"] == preferred_start_hour),
+                None,
+            )
+            if preferred_candidate is not None:
+                preferred_window = {
+                    **preferred_candidate,
+                    "status": "assessed",
+                    "message": (
+                        f"Your preferred time, {preferred_candidate['start']}–{preferred_candidate['end']}, "
+                        f"has an average AQI of {preferred_candidate['mean_aqi']:.1f} ({preferred_candidate['aqi_band']}).\n\n"
+                        f"{cpcb_aqi_band(preferred_candidate['mean_aqi'])['advisory']}"
+                    ),
+                }
+                better_options = [
+                    window for window in candidates
+                    if window["start_hour"] != preferred_start_hour
+                    and window["mean_aqi"] < preferred_candidate["mean_aqi"]
+                ]
+                if better_options:
+                    preferred_alternative = better_options[0]
+                    preferred_window["message"] += (
+                        f"\n\nA lower-AQI option is {preferred_alternative['start']}–{preferred_alternative['end']}, "
+                        f"with an average AQI of {preferred_alternative['mean_aqi']:.1f}."
+                    )
+                else:
+                    preferred_window["message"] += (
+                        "\n\nWe did not find another eligible time slot with a lower average AQI in the available data."
+                    )
 
     return {
         "status": "recommendation_available",
         "message": (
-            "The window is ranked by mean hourly AQI among eligible windows "
-            "with reliable observations. Historical data does not guarantee "
-            "conditions on another day."
+            "We found one or more activity times with reliable AQI readings.\n\n"
+            "Times are ranked by average AQI. If two windows have the same average, "
+            "we prefer the one with the lower worst-hour AQI, then the earlier start time."
         ),
         "city": str(city).strip(),
         "activity_date": str(selected_date),
@@ -256,4 +330,6 @@ def generate_recommendation(
         "primary_recommendation": primary,
         "alternatives": alternatives,
         "advisory": advisory,
+        "preferred_window": preferred_window,
+        "preferred_alternative": preferred_alternative,
     }
