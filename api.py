@@ -2,6 +2,7 @@
 from pathlib import Path
 from functools import lru_cache
 import os
+import urllib.request
 from typing import Optional
 
 import pandas as pd
@@ -28,8 +29,18 @@ allowed_frontend_origins = [
     "http://127.0.0.1:5174",
     "https://safehour-planner.onrender.com",
 ]
+
+
+def _normalise_origin(origin):
+    origin = origin.strip().rstrip("/")
+    if origin and "://" not in origin:
+        # Render blueprints pass a bare host (e.g. safehours-web.onrender.com)
+        origin = f"https://{origin}"
+    return origin
+
+
 allowed_frontend_origins.extend(
-    origin.strip().rstrip("/")
+    _normalise_origin(origin)
     for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
     if origin.strip()
 )
@@ -37,21 +48,49 @@ allowed_frontend_origins.extend(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_frontend_origins,
+    # Also accept any Render URL for this project (Render may add a suffix
+    # such as safehours-web-ab12.onrender.com if the name is taken).
+    allow_origin_regex=r"https://safehours?[a-z0-9-]*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+def _ensure_dataset():
+    """Download the dataset from DATA_URL if it is not in the repo."""
+    if DATA_PATH.exists():
+        return
+    data_url = os.getenv("DATA_URL", "").strip()
+    if not data_url:
+        return
+    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(data_url, DATA_PATH)
+
+
 @lru_cache(maxsize=1)
 def load_data():
+    try:
+        _ensure_dataset()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not download dataset from DATA_URL: {exc}",
+        ) from exc
+
     if not DATA_PATH.exists():
         raise HTTPException(
             status_code=500,
             detail=f"Dataset not found: {DATA_PATH}",
         )
 
-    df = pd.read_csv(DATA_PATH)
+    # Only these columns are used; reading just them keeps memory low
+    # enough for Render's 512 MB free tier.
+    df = pd.read_csv(
+        DATA_PATH,
+        usecols=lambda c: str(c).strip() in {"City", "Datetime", "AQI"},
+    )
+    df.columns = [str(c).strip() for c in df.columns]
 
     required = {"City", "Datetime", "AQI"}
     missing = required - set(df.columns)
@@ -83,6 +122,11 @@ class PlanRequest(BaseModel):
     health_precautions_enabled: bool = False
     health_sensitivity_group: Optional[str] = None
     health_aqi_threshold: Optional[float] = None
+
+
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "SafeHours API. See /api/health and /docs."}
 
 
 @app.get("/api/health")

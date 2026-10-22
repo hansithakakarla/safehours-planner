@@ -13,7 +13,14 @@ import {
 } from "lucide-react";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL?.replace(/\/+$/, "")
+function normaliseApiUrl(value) {
+  const url = (value || "").trim().replace(/\/+$/, "").replace(/\/api$/, "");
+  if (!url) return "";
+  // Render blueprints pass a bare host (e.g. safehours-api.onrender.com).
+  return /^https?:\/\//.test(url) ? url : `https://${url}`;
+}
+
+const API = normaliseApiUrl(import.meta.env.VITE_API_URL)
   || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 
 function apiConfigurationError() {

@@ -38,10 +38,9 @@ The application uses historical data, not live measurements or future AQI predic
 
 ## Technology Stack
 
-- Python
-- Pandas
-- [Streamlit / chosen web framework]
-- [Plotly / chosen visualisation library]
+- FastAPI and Pydantic for the API
+- Pandas for dataset loading and processing
+- React and Vite for the frontend
 
 ## Dataset
 
@@ -57,31 +56,37 @@ AQI classification: CPCB National Air Quality Index bands. [Add an official CPCB
 
 Because the dataset ends in 2020, recommendations are based on historical replay data and must not be interpreted as current air-quality conditions.
 
-## Setup and Execution
+## Local Setup and Execution
 
-1. Clone this repository.
-2. Create and activate a Python virtual environment.
-3. Install dependencies:
+1. Install the Python dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Place the downloaded `city_hour.csv` in the expected data directory.
-5. Run the data-quality checks and recommendation evaluation:
+2. Prepare the small dataset used by the API from the full Kaggle `city_hour.csv`:
 
    ```bash
-   python data_quality.py
-   python evaluate_recommendation.py
+   python prepare_data.py path/to/full/city_hour.csv
    ```
 
-6. Run the application:
+   This writes `data/city_hour.csv`, containing only Bengaluru, Chennai, Delhi, and the `City`, `Datetime`, and `AQI` columns. Alternatively, set `DATA_URL` on the API to a publicly accessible copy of the dataset.
+
+3. Start the API in one terminal:
 
    ```bash
-   streamlit run app.py
+   uvicorn api:app --reload
    ```
 
-   Replace the final command with the actual entry point and framework used by the project.
+4. In another terminal, install and start the frontend:
+
+   ```bash
+   cd frontend
+   npm ci
+   npm run dev
+   ```
+
+   The Vite development server uses `http://127.0.0.1:8000` for the API by default. Set `VITE_API_URL` if the API is running elsewhere.
 
 ## Evaluation
 
@@ -116,20 +121,26 @@ See [DEV_LOG.md](DEV_LOG.md) for development decisions, experiments, test result
 
 ### Render Deployment
 
-Deploy the React frontend as a Static Site and the FastAPI backend as a separate Web Service.
+**1. Add the dataset (one time).** Render can only use files that are in the repo. Make the small 3-city file and commit it:
 
-**Frontend Static Site**
+```bash
+python prepare_data.py path/to/full/city_hour.csv   # writes data/city_hour.csv
+git add data/city_hour.csv
+```
 
-- Root directory: `frontend`
-- Build command: `npm install && npm run build`
-- Publish directory: `dist`
-- Environment variable: `VITE_API_URL=https://<your-api-service>.onrender.com`
+`.gitignore` allows `data/city_hour.csv` but still ignores other CSVs. As an alternative, host the CSV somewhere public and set a `DATA_URL` environment variable on the API service; it is downloaded on first request.
 
-**Backend Web Service**
+**2. Deploy with the Blueprint (recommended).** In Render, go to **New + → Blueprint**, pick this repo and click **Apply**. `render.yaml` creates both services and wires their URLs together automatically:
 
-- Root directory: repository root
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn api:app --host 0.0.0.0 --port $PORT`
-- Environment variable: `FRONTEND_ORIGINS=https://<your-frontend-site>.onrender.com`
+- `safehours-api`: Python web service (FastAPI, `uvicorn api:app`), health check `/api/health`
+- `safehours-web`: static site built from `frontend/` (`npm ci && npm run build`, publish `dist`)
 
-`VITE_API_URL` is embedded into the frontend at build time, so redeploy the Static Site after changing it. Do not use `127.0.0.1` for the deployed frontend; that address points to each visitor's own computer. `FRONTEND_ORIGINS` accepts comma-separated browser origins and should contain the exact frontend origin, without a path.
+**Manual setup (if you don't use the Blueprint).**
+
+Backend Web Service: root directory blank, build `pip install -r requirements.txt`, start `uvicorn api:app --host 0.0.0.0 --port $PORT`, env vars `PYTHON_VERSION=3.12.8` and `FRONTEND_ORIGINS=https://<your-frontend>.onrender.com`.
+
+Frontend Static Site: root directory `frontend`, build `npm ci && npm run build`, publish directory `dist`, env var `VITE_API_URL=https://<your-api>.onrender.com`.
+
+`VITE_API_URL` is embedded at build time, so redeploy the static site after changing it. Any `https://safehours*.onrender.com` origin is accepted by the API's CORS settings, plus anything listed in `FRONTEND_ORIGINS`.
+
+On the free plan the API sleeps after ~15 minutes idle; open `/api/health` once before a demo to wake it.

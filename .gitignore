@@ -221,6 +221,14 @@ __marimo__/
 
 # Dataset files
 data/*.csv
+# The trimmed 3-city dataset IS committed so Render can load it
+!data/city_hour.csv
 date_evaluation_summary.csv
 date_evaluation_candidates.csv
 evaluation_results*.csv
+
+# Node
+node_modules/
+/package.json
+/package-lock.json
+frontend/dist/
